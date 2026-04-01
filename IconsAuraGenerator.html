@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AoM Retold Icons Aura Generator</title>
+  <!-- Interact.js for drag+resize of the unit inside the viewport -->
+  <script src="https://cdn.jsdelivr.net/npm/interactjs@1.10.27/dist/interact.min.js"></script>
+  <style>
+    :root {
+      /* theme vars — overwritten by JS on preset change */
+      --green:               #e8c040;
+      --green-dim:           #b88c30;
+      --green-dark:          #3a2a00;
+      --bg:                  #111111;
+      --surface:             #1a1a1a;
+      --border:              #333333;
+      --text:                #f0ece0;
+      --text-dim:            #c0aa60;
+      --accent-glow:         rgba(232,192,64,0.55);
+      --accent-glow-strong:  rgba(232,192,64,0.6);
+      --dropzone-hover-bg:   rgba(220,180,40,0.07);
+      --btn-hover-bg:        #2e2400;
+      --placeholder-color:   #705020;
+      --viewport-hint-color: #706020;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 3rem;
+      gap: 0.4rem;
+      transition: background-color 0.4s ease, color 0.4s ease;
+    }
+
+    h1 {
+      color: var(--green);
+      font-size: 1.55rem;
+      letter-spacing: 0.06em;
+      text-shadow: 0 0 28px var(--accent-glow);
+      margin-bottom: 0.15rem;
+      transition: color 0.4s ease, text-shadow 0.4s ease;
+    }
+    .subtitle {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      margin-bottom: 1.8rem;
+    }
+
+    /* ── Layout ── */
+    .workspace {
+      display: flex;
+      gap: 1.25rem;
+      width: 100%;
+      max-width: 1400px;
+      align-items: flex-start;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      flex: 1;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      transition: background-color 0.4s ease, border-color 0.4s ease;
+    }
+    /* center panel scrolls independently if tall */
+    .panel-controls {
+      overflow-y: auto;
+      max-height: calc(100vh - 10rem);
+    }
+    .panel-title {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 2.5px;
+      color: var(--green-dim);
+      margin-bottom: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* ── Drop zone ── */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2.2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .dropzone:hover,
+    .dropzone.drag-over {
+      border-color: var(--green);
+      background: var(--dropzone-hover-bg);
+    }
+    .dropzone .drop-icon { font-size: 2rem; margin-bottom: 0.4rem; }
+    .dropzone .drop-hint {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* ── Viewport: square compositing area ── */
+    .viewport-wrap {
+      margin-top: 0.9rem;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+      touch-action: none;
+    }
+    /* background canvas fills the viewport */
+    #bgCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    /* the unit image is a positioned element we drag/resize */
+    #unitEl {
+      position: absolute;
+      cursor: move;
+      /* interact.js needs explicit dimensions; set by JS */
+      touch-action: none;
+      user-select: none;
+      image-rendering: pixelated;
+    }
+    #unitEl.interact-dragging { opacity: 0.85; }
+    /* resize handle hint (bottom-right corner) */
+    #unitEl::after {
+      content: '';
+      position: absolute;
+      right: 0; bottom: 0;
+      width: 14px; height: 14px;
+      border-right: 2px solid var(--accent-glow-strong);
+      border-bottom: 2px solid var(--accent-glow-strong);
+      border-radius: 0 0 3px 0;
+      pointer-events: none;
+    }
+    .viewport-hint {
+      position: absolute;
+      bottom: 6px; right: 8px;
+      font-size: 0.62rem;
+      color: var(--viewport-hint-color);
+      pointer-events: none;
+    }
+
+    /* ── Canvas area: output panel ── */
+    .canvas-wrap {
+      margin-top: 0.9rem;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    .canvas-wrap canvas {
+      width: 100%;
+      height: 100%;
+      image-rendering: pixelated;
+      display: block;
+    }
+    .placeholder {
+      font-size: 0.78rem;
+      color: var(--placeholder-color);
+      padding: 2rem;
+      text-align: center;
+      line-height: 1.7;
+    }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .ctrl-section-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.6rem;
+      padding-top: 0.6rem;
+      border-top: 1px solid var(--border);
+    }
+    /* first section header needs no top border/margin */
+    .controls .ctrl-section-row:first-child {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+    .ctrl-section {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--green-dim);
+    }
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .ctrl-label {
+      font-size: 0.77rem;
+      color: var(--text-dim);
+      width: 118px;
+      flex-shrink: 0;
+    }
+    input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--green);
+      cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--green);
+      border: none;
+      cursor: pointer;
+    }
+    .ctrl-val {
+      font-size: 0.77rem;
+      color: var(--green);
+      width: 36px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 0.65rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-family: inherit;
+      letter-spacing: 0.04em;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      border: 1px solid var(--green-dim);
+      color: var(--green);
+      background: var(--green-dark);
+    }
+    .btn-full { width: 100%; }
+    .btn:hover:not(:disabled) {
+      background: var(--btn-hover-bg);
+      border-color: var(--green);
+    }
+    .btn:disabled {
+      opacity: 0.28;
+      cursor: not-allowed;
+    }
+    .btn-reset {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.55rem;
+      border-color: var(--border);
+      color: var(--text-dim);
+      background: transparent;
+    }
+    .btn-reset:hover:not(:disabled) {
+      border-color: var(--green-dim);
+      color: var(--green);
+      background: transparent;
+    }
+
+    /* ── Preset row ── */
+    .preset-row {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 0.6rem;
+    }
+    .btn-preset {
+      flex: 1;
+      font-size: 0.75rem;
+      padding: 0.4rem 0.3rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: 0.03em;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      background: transparent;
+    }
+    .btn-preset:hover {
+      border-color: var(--green-dim);
+      color: var(--text);
+    }
+    .btn-preset.active {
+      border-color: var(--green);
+      color: var(--green);
+      background: var(--green-dark);
+    }
+
+    /* ── Download row ── */
+    .dl-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.9rem;
+    }
+    .dl-row .btn {
+      flex: 1;
+      font-size: 0.78rem;
+      padding: 0.55rem 0.4rem;
+    }
+
+    /* ── Status badge ── */
+    .status {
+      margin-top: 0.55rem;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      min-height: 1.1rem;
+      text-align: center;
+    }
+    .status.busy { color: var(--green); }
+
+    /* ── Info strip ── */
+    .info-strip {
+      margin-top: auto;
+      padding-top: 0.8rem;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* ── Theme transitions ── */
+    .panel-title, .ctrl-section, .ctrl-val, .ctrl-label,
+    .subtitle, .status, .info-strip, .drop-hint {
+      transition: color 0.4s ease;
+    }
+    .ctrl-section-row { transition: border-color 0.4s ease; }
+    input[type="range"] { transition: background-color 0.4s ease; }
+    .btn-preset { transition: background 0.15s, border-color 0.4s, color 0.4s; }
+  </style>
+</head>
+<body>
+  <h1>AoM Retold Icons Aura Generator</h1>
+  <p class="subtitle">A tool to create custom AoM Retold-style unit icons with adjustable glow and placement.</p>
+
+  <div class="workspace">
+
+    <!-- ── Left: File upload + input preview ─────────────────────── -->
+    <div class="panel">
+      <div class="panel-title">Input &amp; Preview</div>
+
+      <div class="dropzone" id="dropzone">
+        <div class="drop-icon">🖼</div>
+        <div class="drop-hint">
+          Drop a PNG here, or click to browse.<br>
+          Unit must be on a transparent background.
+        </div>
+        <input type="file" id="fileInput" accept="image/png" hidden />
+      </div>
+
+      <!-- Square viewport: drag the unit, resize from bottom-right corner -->
+      <div class="viewport-wrap" id="viewportWrap">
+        <canvas id="bgCanvas"></canvas>
+        <img id="unitEl" style="display:none" draggable="false" alt="" />
+        <span class="viewport-hint">drag · zoom</span>
+      </div>
+
+    </div>
+
+    <!-- ── Center: All slider controls ──────────────────────────────── -->
+    <div class="panel panel-controls">
+      <div class="panel-title">Parameters <button class="btn btn-reset" id="resetBtn">↺ Reset</button></div>
+
+      <div class="controls">
+
+        <div class="preset-row">
+          <button class="btn-preset active" data-preset="hero">Hero</button>
+          <button class="btn-preset" data-preset="myth">Myth</button>
+          <button class="btn-preset" data-preset="legend">Legend</button>
+          <button class="btn-preset" data-preset="villain">Villain</button>
+        </div>
+
+        <div class="ctrl-section-row">
+          <span class="ctrl-section">Placement</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Zoom</span>
+          <input type="range" id="unitZoom" min="10" max="200" step="1" value="100" />
+          <span class="ctrl-val" id="unitZoomVal"></span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">X Offset</span>
+          <input type="range" id="unitX" min="-512" max="512" step="1" value="0" />
+          <span class="ctrl-val" id="unitXVal"></span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Y Offset</span>
+          <input type="range" id="unitY" min="-512" max="512" step="1" value="0" />
+          <span class="ctrl-val" id="unitYVal"></span>
+        </div>
+
+        <div class="ctrl-section-row">
+          <span class="ctrl-section">Glow</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Spread</span>
+          <input type="range" id="glowSpread" min="0.02" max="0.25" step="0.005" value="0.15" />
+          <span class="ctrl-val" id="glowSpreadVal"></span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Intensity</span>
+          <input type="range" id="glowIntensity" min="0.1" max="2.5" step="0.05" value="0.75" />
+          <span class="ctrl-val" id="glowIntensityVal"></span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Rim Sharpness</span>
+          <input type="range" id="rimSharpness" min="0" max="1" step="0.05" value="0.25" />
+          <span class="ctrl-val" id="rimSharpnessVal"></span>
+        </div>
+
+        <div class="ctrl-section-row">
+          <span class="ctrl-section">Ambient Background</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">BG Strength</span>
+          <input type="range" id="ambientStrength" min="0" max="1.5" step="0.05" value="0.55" />
+          <span class="ctrl-val" id="ambientStrengthVal"></span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">BG Radius</span>
+          <input type="range" id="ambientRadius" min="0.2" max="0.95" step="0.05" value="0.55" />
+          <span class="ctrl-val" id="ambientRadiusVal"></span>
+        </div>
+
+        <div class="ctrl-section-row">
+          <span class="ctrl-section">Color</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Hue</span>
+          <input type="range" id="greenHue" min="0" max="200" step="1" value="50" />
+          <span class="ctrl-val" id="greenHueVal"></span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Saturation</span>
+          <input type="range" id="greenSat" min="40" max="100" step="1" value="50" />
+          <span class="ctrl-val" id="greenSatVal"></span>
+        </div>
+
+        <div class="ctrl-section-row">
+          <span class="ctrl-section">Instructions</span>
+        </div>
+        
+        <div class="info-strip">
+          Drop any transparent-background PNG to generate an AoM Retold-style aura icon with customisable glow, color, and placement across four presets (Hero, Myth, Legend, Villain). 
+          Adjust all parameters live and download the result at 512, 256, or 128 px.
+          <br>
+          For best results, use a source image with the unit centered on a transparent background, ideally around 512×512 px. The zoom and offset controls let you fine-tune the unit's placement within the icon. The glow parameters allow you to achieve the desired intensity and spread of the aura effect.
+        </div>
+
+      </div><!-- .controls -->
+    </div><!-- .panel center -->
+
+    <!-- ── Right: Output ─────────────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-title">Output — 512 × 512 px</div>
+
+      <div class="canvas-wrap">
+        <div class="placeholder" id="outputPlaceholder">
+          Load an image to see the live preview.<br>
+          Output is rendered at 512 × 512 px.
+        </div>
+        <canvas id="outputCanvas" width="512" height="512" style="display:none"></canvas>
+      </div>
+
+      <div class="status" id="statusMsg"></div>
+
+      <div class="dl-row">
+        <button class="btn" id="dl512Btn" disabled>↓ 512 px</button>
+        <button class="btn" id="dl256Btn" disabled>↓ 256 px</button>
+        <button class="btn" id="dl128Btn" disabled>↓ 128 px</button>
+      </div>
+    </div>
+
+  </div><!-- .workspace -->
+
+  <script>
+  (() => {
+    'use strict';
+
+    /* ═══════════════════════════════════════════════════════════════════
+       PRESETS  &  BASE DEFAULTS
+    ═══════════════════════════════════════════════════════════════════ */
+    const PRESETS = {
+      hero:    { hue:  50, saturation:  50 },
+      myth:    { hue: 160, saturation: 80 },
+      legend:  { hue: 200, saturation:  50 },
+      villain: { hue:   0, saturation:  70 },
+    };
+
+    const THEMES = {
+      hero: {
+        '--green':               '#e8c040',
+        '--green-dim':           '#b88c30',
+        '--green-dark':          '#3a2a00',
+        '--bg':                  '#111111',
+        '--surface':             '#1a1a1a',
+        '--border':              '#333333',
+        '--text':                '#f0ece0',
+        '--text-dim':            '#c0aa60',
+        '--accent-glow':         'rgba(232,192,64,0.55)',
+        '--accent-glow-strong':  'rgba(232,192,64,0.6)',
+        '--dropzone-hover-bg':   'rgba(220,180,40,0.07)',
+        '--btn-hover-bg':        '#2e2400',
+        '--placeholder-color':   '#705020',
+        '--viewport-hint-color': '#706020',
+      },
+      myth: {
+        '--green':               '#00e04a',
+        '--green-dim':           '#40b060',
+        '--green-dark':          '#003a12',
+        '--bg':                  '#111111',
+        '--surface':             '#1a1a1a',
+        '--border':              '#333333',
+        '--text':                '#e0f0e0',
+        '--text-dim':            '#70c080',
+        '--accent-glow':         'rgba(0,224,74,0.55)',
+        '--accent-glow-strong':  'rgba(0,224,74,0.6)',
+        '--dropzone-hover-bg':   'rgba(0,200,60,0.07)',
+        '--btn-hover-bg':        '#0b2e12',
+        '--placeholder-color':   '#205030',
+        '--viewport-hint-color': '#206028',
+      },
+      legend: {
+        '--green':               '#40a0e8',
+        '--green-dim':           '#4080c0',
+        '--green-dark':          '#001840',
+        '--bg':                  '#111111',
+        '--surface':             '#1a1a1a',
+        '--border':              '#333333',
+        '--text':                '#e0e8f4',
+        '--text-dim':            '#7090c0',
+        '--accent-glow':         'rgba(64,160,232,0.55)',
+        '--accent-glow-strong':  'rgba(64,160,232,0.6)',
+        '--dropzone-hover-bg':   'rgba(40,140,220,0.07)',
+        '--btn-hover-bg':        '#001830',
+        '--placeholder-color':   '#204060',
+        '--viewport-hint-color': '#284060',
+      },
+      villain: {
+        '--green':               '#e04040',
+        '--green-dim':           '#c04040',
+        '--green-dark':          '#3a0000',
+        '--bg':                  '#111111',
+        '--surface':             '#1a1a1a',
+        '--border':              '#333333',
+        '--text':                '#f4e0e0',
+        '--text-dim':            '#c06060',
+        '--accent-glow':         'rgba(224,64,64,0.55)',
+        '--accent-glow-strong':  'rgba(224,64,64,0.6)',
+        '--dropzone-hover-bg':   'rgba(220,40,40,0.07)',
+        '--btn-hover-bg':        '#2e0000',
+        '--placeholder-color':   '#602020',
+        '--viewport-hint-color': '#602828',
+      },
+    };
+    const BASE_DEFAULTS = {
+      glowSpread:      0.15,
+      glowIntensity:   0.75,
+      rimSharpness:    0.25,
+      ambientStrength: 0.55,
+      ambientRadius:   0.55,
+      zoom:            100,
+    };
+    let activePreset = 'hero';
+
+    /* ── DOM refs ─────────────────────────────────────────────────────── */
+    const dropzone      = document.getElementById('dropzone');
+    const fileInput     = document.getElementById('fileInput');
+    const viewportWrap  = document.getElementById('viewportWrap');
+    const bgCanvas      = document.getElementById('bgCanvas');
+    const unitEl        = document.getElementById('unitEl');
+    const outputCanvas  = document.getElementById('outputCanvas');
+    const outputPH      = document.getElementById('outputPlaceholder');
+    const statusMsg     = document.getElementById('statusMsg');
+    const resetBtn      = document.getElementById('resetBtn');
+    const presetBtns    = document.querySelectorAll('.btn-preset');
+    const dl512Btn      = document.getElementById('dl512Btn');
+    const dl256Btn      = document.getElementById('dl256Btn');
+    const dl128Btn      = document.getElementById('dl128Btn');
+
+    /* ── Slider wiring ────────────────────────────────────────────────── */
+    function bindSlider(id, fmt) {
+      const el  = document.getElementById(id);
+      const val = document.getElementById(id + 'Val');
+      const update = () => { val.textContent = fmt(parseFloat(el.value)); };
+      el.addEventListener('input', () => { update(); scheduleRender(); });
+      update();
+      return el;
+    }
+
+    const unitZoomEl      = document.getElementById('unitZoom');
+    const unitZoomValEl   = document.getElementById('unitZoomVal');
+    const unitXEl         = document.getElementById('unitX');
+    const unitXValEl      = document.getElementById('unitXVal');
+    const unitYEl         = document.getElementById('unitY');
+    const unitYValEl      = document.getElementById('unitYVal');
+    const glowSpreadEl    = bindSlider('glowSpread',      v => Math.round(v * 100) + '%');
+    const glowIntensityEl = bindSlider('glowIntensity',   v => v.toFixed(2));
+    const rimSharpnessEl  = bindSlider('rimSharpness',    v => v.toFixed(2));
+    const ambientStrEl    = bindSlider('ambientStrength', v => v.toFixed(2));
+    const ambientRadEl    = bindSlider('ambientRadius',   v => Math.round(v * 100) + '%');
+    const greenHueEl      = bindSlider('greenHue',        v => v + '\u00b0');
+    const greenSatEl      = bindSlider('greenSat',        v => v + '%');
+
+    function updateZoomLabel() {
+      unitZoomValEl.textContent = Math.round(parseFloat(unitZoomEl.value)) + '%';
+    }
+    function updateXYLabels() {
+      unitXValEl.textContent = Math.round(parseFloat(unitXEl.value)) + 'px';
+      unitYValEl.textContent = Math.round(parseFloat(unitYEl.value)) + 'px';
+    }
+    function syncXYSliders() {
+      unitXEl.value = Math.round(placement.x);
+      unitYEl.value = Math.round(placement.y);
+      updateXYLabels();
+    }
+    updateZoomLabel();
+    updateXYLabels();
+
+    unitXEl.addEventListener('input', () => {
+      updateXYLabels();
+      placement.x = parseFloat(unitXEl.value);
+      applyPlacement();
+      scheduleRender();
+    });
+    unitYEl.addEventListener('input', () => {
+      updateXYLabels();
+      placement.y = parseFloat(unitYEl.value);
+      applyPlacement();
+      scheduleRender();
+    });
+
+    unitZoomEl.addEventListener('input', () => {
+      updateZoomLabel();
+      if (fitW === 0) return;
+      const factor = parseFloat(unitZoomEl.value) / 100;
+      const newW = Math.round(fitW * factor);
+      const newH = Math.round(fitH * factor);
+      // Keep the current center fixed
+      const cx = placement.x + placement.w / 2;
+      const cy = placement.y + placement.h / 2;
+      placement.w = Math.max(10, newW);
+      placement.h = Math.max(10, newH);
+      placement.x = Math.round(cx - placement.w / 2);
+      placement.y = Math.round(cy - placement.h / 2);
+      syncXYSliders();
+      applyPlacement();
+      scheduleRender();
+    });
+
+    /* ── Preset switching ──────────────────────────────────────────────── */
+    function applyPreset(name) {
+      activePreset = name;
+      presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === name));
+      // Apply theme colors
+      const t = THEMES[name];
+      const root = document.documentElement;
+      Object.entries(t).forEach(([k, v]) => root.style.setProperty(k, v));
+      // Apply color sliders
+      const p = PRESETS[name];
+      greenHueEl.value = p.hue;
+      greenSatEl.value = p.saturation;
+      greenHueEl.dispatchEvent(new Event('input'));
+      greenSatEl.dispatchEvent(new Event('input'));
+    }
+    presetBtns.forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
+    // Apply hero theme on load
+    applyPreset('hero');
+
+    /* ── Reset button ─────────────────────────────────────────────────── */
+    resetBtn.addEventListener('click', () => {
+      glowSpreadEl.value    = BASE_DEFAULTS.glowSpread;
+      glowIntensityEl.value = BASE_DEFAULTS.glowIntensity;
+      rimSharpnessEl.value  = BASE_DEFAULTS.rimSharpness;
+      ambientStrEl.value    = BASE_DEFAULTS.ambientStrength;
+      ambientRadEl.value    = BASE_DEFAULTS.ambientRadius;
+      unitZoomEl.value      = BASE_DEFAULTS.zoom;
+      updateZoomLabel();
+      // Reset hue/sat from active preset
+      const p = PRESETS[activePreset];
+      greenHueEl.value = p.hue;
+      greenSatEl.value = p.saturation;
+      // Also reset position to centered
+      if (fitW > 0) {
+        const vw = viewportWrap.clientWidth;
+        const vh = viewportWrap.clientHeight;
+        placement.x = Math.round((vw - placement.w) / 2);
+        placement.y = Math.round((vh - placement.h) / 2);
+        syncXYSliders();
+        applyPlacement();
+      }
+      // Refresh displayed values
+      [glowSpreadEl, glowIntensityEl, rimSharpnessEl,
+       ambientStrEl, ambientRadEl, greenHueEl, greenSatEl].forEach(el =>
+        el.dispatchEvent(new Event('input'))
+      );
+    });
+
+    /* ── File loading ─────────────────────────────────────────────────── */
+    let sourceDataURL = null;   // original PNG data-URL
+    let inputFileName  = 'unit'; // base filename (no extension) for downloads
+
+    // Placement state (in viewport pixels, set when image loads)
+    let placement = { x: 0, y: 0, w: 0, h: 0 };
+    let fitW = 0, fitH = 0;  // natural 100% fit size, used by zoom slider
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+      const f = e.dataTransfer.files[0];
+      if (f && f.type === 'image/png') loadFile(f);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) loadFile(fileInput.files[0]);
+    });
+
+    function loadFile(file) {
+      inputFileName = file.name.replace(/\.[^/.]+$/, '');
+      const reader = new FileReader();
+      reader.onload = ev => {
+        sourceDataURL = ev.target.result;
+        const img = new Image();
+        img.onload = () => {
+          setupViewport(img);
+          scheduleRender();
+        };
+        img.src = sourceDataURL;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    /* ── Viewport setup ───────────────────────────────────────────────── */
+    function setupViewport(img) {
+      const vw = viewportWrap.clientWidth;
+      const vh = viewportWrap.clientHeight;   // square, so vw === vh nominally
+
+      // Scale image to fill the viewport exactly at zoom=100%, centred
+      const scale = Math.min(vw / img.naturalWidth, vh / img.naturalHeight);
+      const w = Math.round(img.naturalWidth  * scale);
+      const h = Math.round(img.naturalHeight * scale);
+      const x = Math.round((vw - w) / 2);
+      const y = Math.round((vh - h) / 2);
+
+      fitW = w;
+      fitH = h;
+      placement = { x, y, w, h };
+      unitZoomEl.value = 100;
+      updateZoomLabel();
+      syncXYSliders();
+
+      unitEl.src = sourceDataURL;
+      applyPlacement();
+      unitEl.style.display = 'block';
+    }
+
+    function applyPlacement() {
+      unitEl.style.left   = placement.x + 'px';
+      unitEl.style.top    = placement.y + 'px';
+      unitEl.style.width  = placement.w + 'px';
+      unitEl.style.height = placement.h + 'px';
+    }
+
+    /* ── Interact.js: drag + resize ───────────────────────────────────── */
+    interact('#unitEl')
+      .draggable({
+        listeners: {
+          move(e) {
+            placement.x += e.dx;
+            placement.y += e.dy;
+            syncXYSliders();
+            applyPlacement();
+            scheduleRender();
+          },
+        },
+        modifiers: [],
+      })
+      .resizable({
+        edges: { right: true, bottom: true, bottomRight: true },
+        listeners: {
+          move(e) {
+            placement.w = Math.max(20, e.rect.width);
+            placement.h = Math.max(20, e.rect.height);
+            placement.x += e.deltaRect.left;
+            placement.y += e.deltaRect.top;
+            syncXYSliders();
+            applyPlacement();
+            scheduleRender();
+          },
+        },
+        modifiers: [
+          interact.modifiers.restrictSize({ min: { width: 20, height: 20 } }),
+        ],
+      });
+
+    /* ═══════════════════════════════════════════════════════════════════
+       LIVE RENDER with debounce
+    ═══════════════════════════════════════════════════════════════════ */
+    const DEBOUNCE_MS = 800;
+    let debounceTimer = null;
+    let rendering     = false;
+
+    function scheduleRender() {
+      if (!sourceDataURL) return;
+      clearTimeout(debounceTimer);
+      setStatus('…', true);
+      debounceTimer = setTimeout(doRender, DEBOUNCE_MS);
+    }
+
+    function doRender() {
+      if (rendering) { debounceTimer = setTimeout(doRender, 200); return; }
+      rendering = true;
+      setStatus('Rendering…', true);
+      // Yield one frame so the UI repaints the status
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        try {
+          renderToOutputCanvas();
+          setStatus('');
+          [dl512Btn, dl256Btn, dl128Btn].forEach(b => b.disabled = false);
+          outputPH.style.display     = 'none';
+          outputCanvas.style.display = 'block';
+        } catch(err) {
+          setStatus('Error: ' + err.message);
+        } finally {
+          rendering = false;
+        }
+      }));
+    }
+
+    /** Render directly into the 512×512 output canvas */
+    function renderToOutputCanvas() {
+      const OUT = 512;
+      const ctx = outputCanvas.getContext('2d');
+
+      // -- Build an intermediate canvas at native output size (512×512) --
+      // The viewport is CSS-sized; we map placement coords → 512px space.
+      const vw = viewportWrap.clientWidth;
+      const vh = viewportWrap.clientHeight;
+      const scaleX = OUT / vw;
+      const scaleY = OUT / vh;
+
+      // Build a temporary Image at the mapped position
+      const compositeImg = makeCanvas(OUT, OUT);
+      const cCtx = compositeImg.getContext('2d');
+
+      // Draw unit at its viewport position scaled to output space
+      const ux = placement.x * scaleX;
+      const uy = placement.y * scaleY;
+      const uw = placement.w * scaleX;
+      const uh = placement.h * scaleY;
+
+      const unitImg = new Image();
+      unitImg.src = sourceDataURL;
+      // unitImg should already be loaded since we set it in setupViewport
+      cCtx.drawImage(unitImg, ux, uy, uw, uh);
+
+      const result = applyEmeraldAura(compositeImg, getParams());
+      ctx.clearRect(0, 0, OUT, OUT);
+      ctx.drawImage(result, 0, 0);
+    }
+
+    function getParams() {
+      return {
+        glowSpread:      parseFloat(glowSpreadEl.value),
+        glowIntensity:   parseFloat(glowIntensityEl.value),
+        rimSharpness:    parseFloat(rimSharpnessEl.value),
+        ambientStrength: parseFloat(ambientStrEl.value),
+        ambientRadius:   parseFloat(ambientRadEl.value),
+        hue:             parseInt(greenHueEl.value),
+        saturation:      parseInt(greenSatEl.value),
+      };
+    }
+
+    function setStatus(msg, busy = false) {
+      statusMsg.textContent = msg;
+      statusMsg.className   = 'status' + (busy ? ' busy' : '');
+    }
+
+    /* ── Download helpers ─────────────────────────────────────────────── */
+    function downloadAt(size) {
+      const tmp  = makeCanvas(size, size);
+      tmp.getContext('2d').drawImage(outputCanvas, 0, 0, size, size);
+      const a = document.createElement('a');
+      a.download = `${inputFileName}_${activePreset}_icon_${size}.png`;
+      a.href = tmp.toDataURL('image/png');
+      a.click();
+    }
+    dl512Btn.addEventListener('click', () => downloadAt(512));
+    dl256Btn.addEventListener('click', () => downloadAt(256));
+    dl128Btn.addEventListener('click', () => downloadAt(128));
+
+    /* ════════════════════════════════════════════════════════════════════
+       CORE ALGORITHM  (unchanged from calibrated version)
+    ════════════════════════════════════════════════════════════════════ */
+    function applyEmeraldAura(img, opts) {
+      const {
+        glowSpread, glowIntensity, rimSharpness,
+        ambientStrength, ambientRadius, hue, saturation,
+      } = opts;
+
+      const W = img.width;
+      const H = img.height;
+
+      /* 1. Build flat emerald silhouette */
+      const silCanvas = makeCanvas(W, H);
+      const silCtx    = silCanvas.getContext('2d');
+      silCtx.drawImage(img, 0, 0);
+
+      const imgData = silCtx.getImageData(0, 0, W, H);
+      const px      = imgData.data;
+      const [gR, gG, gB] = hslToRgb(hue, saturation, 52);
+
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i + 3] > 8) {
+          px[i] = gR; px[i+1] = gG; px[i+2] = gB; px[i+3] = 255;
+        } else {
+          px[i+3] = 0;
+        }
+      }
+      silCtx.putImageData(imgData, 0, 0);
+
+      /* 2. Output canvas */
+      const out = makeCanvas(W, H);
+      const ctx = out.getContext('2d');
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+
+      /* 3. Ambient radial background */
+      if (ambientStrength > 0.01) {
+        const cx = W * 0.50, cy = H * 0.46;
+        const r  = Math.max(W, H) * ambientRadius;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0.00, hsla(hue, saturation, 30, 0.95 * ambientStrength));
+        grad.addColorStop(0.30, hsla(hue, saturation, 20, 0.70 * ambientStrength));
+        grad.addColorStop(0.58, hsla(hue, saturation, 10, 0.35 * ambientStrength));
+        grad.addColorStop(0.82, hsla(hue, saturation,  4, 0.12 * ambientStrength));
+        grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      /* 4. Multi-pass additive silhouette glow */
+      const baseBlur = W * glowSpread;
+      const passes = [
+        { f: 0.04,  a: 0.90, rim: true  },
+        { f: 0.12,  a: 0.80, rim: true  },
+        { f: 0.35,  a: 0.75, rim: false },
+        { f: 0.80,  a: 0.55, rim: false },
+        { f: 1.80,  a: 0.35, rim: false },
+        { f: 4.00,  a: 0.14, rim: false },
+      ];
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const p of passes) {
+        const blurPx = Math.max(0.4, baseBlur * p.f);
+        const alpha  = Math.min(1.0, p.a * (p.rim ? rimSharpness : 1.0) * glowIntensity);
+        if (alpha < 0.005) continue;
+        const tmp  = makeCanvas(W, H);
+        const tCtx = tmp.getContext('2d');
+        tCtx.filter = `blur(${blurPx.toFixed(2)}px)`;
+        tCtx.drawImage(silCanvas, 0, 0);
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(tmp, 0, 0);
+      }
+      ctx.restore();
+
+      /* 5. Original unit on top */
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(img, 0, 0);
+
+      return out;
+    }
+
+    /* ── Utilities ────────────────────────────────────────────────────── */
+    function makeCanvas(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      return c;
+    }
+
+    function hslToRgb(h, s, l) {
+      s /= 100; l /= 100;
+      const k = n => (n + h / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+    }
+
+    function hsla(h, s, l, a) {
+      return `hsla(${h},${s}%,${l}%,${a.toFixed(3)})`;
+    }
+
+  })();
+  </script>
+</body>
+</html>
