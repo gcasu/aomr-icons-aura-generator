@@ -22,7 +22,7 @@ No installation or build step required — open `IconsAuraGenerator.html` direct
 
 ## How to Use
 
-1. Open `IconsAuraGenerator.html` in your browser.
+1. Open `Tools/IconsAuraGenerator.html` in your browser.
 2. Drop a PNG with a transparent background onto the **Input & Preview** panel, or click to browse.
 3. Choose a **preset** (Hero / Myth / Legend / Villain) from the Parameters panel.
 4. Adjust placement and effect sliders as needed; the Output panel updates automatically.
@@ -53,6 +53,7 @@ Calibrated against AoM Retold 4K myth unit icons across 6 civilisations.
 ## File Location
 
 ```
-IconsAuraGenerator.html     ← the app
-README.md                   ← this file
+Tools/
+  IconsAuraGenerator.html   ← the app
+  README.md                   ← this file
 ```

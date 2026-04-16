@@ -367,7 +367,7 @@
 </head>
 <body>
   <h1>AoM Retold Icons Aura Generator</h1>
-  <p class="subtitle">A tool to create custom AoM Retold-style unit icons with adjustable glow and placement.</p>
+  <p class="subtitle">Age of Mythology Retold · Unit Icon Creator</p>
 
   <div class="workspace">
 
@@ -482,17 +482,6 @@
           <span class="ctrl-val" id="greenSatVal"></span>
         </div>
 
-        <div class="ctrl-section-row">
-          <span class="ctrl-section">Instructions</span>
-        </div>
-        
-        <div class="info-strip">
-          Drop any transparent-background PNG to generate an AoM Retold-style aura icon with customisable glow, color, and placement across four presets (Hero, Myth, Legend, Villain). 
-          Adjust all parameters live and download the result at 512, 256, or 128 px.
-          <br>
-          For best results, use a source image with the unit centered on a transparent background, ideally around 512×512 px. The zoom and offset controls let you fine-tune the unit's placement within the icon. The glow parameters allow you to achieve the desired intensity and spread of the aura effect.
-        </div>
-
       </div><!-- .controls -->
     </div><!-- .panel center -->
 
@@ -515,6 +504,11 @@
         <button class="btn" id="dl256Btn" disabled>↓ 256 px</button>
         <button class="btn" id="dl128Btn" disabled>↓ 128 px</button>
       </div>
+
+      <div class="info-strip">
+        Drop any transparent-background PNG to generate an AoM Retold-style aura icon with customisable glow, color, and placement across four presets (Hero, Myth, Legend, Villain).<br>
+        Adjust all parameters live and download the result at 512, 256, or 128 px.
+      </div>
     </div>
 
   </div><!-- .workspace -->
@@ -528,7 +522,7 @@
     ═══════════════════════════════════════════════════════════════════ */
     const PRESETS = {
       hero:    { hue:  50, saturation:  50 },
-      myth:    { hue: 160, saturation: 80 },
+      myth:    { hue: 160, saturation: 100 },
       legend:  { hue: 200, saturation:  50 },
       villain: { hue:   0, saturation:  70 },
     };
@@ -897,10 +891,8 @@
       const uw = placement.w * scaleX;
       const uh = placement.h * scaleY;
 
-      const unitImg = new Image();
-      unitImg.src = sourceDataURL;
-      // unitImg should already be loaded since we set it in setupViewport
-      cCtx.drawImage(unitImg, ux, uy, uw, uh);
+      // Use the already-loaded <img> element — avoids async-load races on Safari
+      cCtx.drawImage(unitEl, ux, uy, uw, uh);
 
       const result = applyEmeraldAura(compositeImg, getParams());
       ctx.clearRect(0, 0, OUT, OUT);
@@ -1006,8 +998,13 @@
         if (alpha < 0.005) continue;
         const tmp  = makeCanvas(W, H);
         const tCtx = tmp.getContext('2d');
-        tCtx.filter = `blur(${blurPx.toFixed(2)}px)`;
-        tCtx.drawImage(silCanvas, 0, 0);
+        if (_ctxFilterOK) {
+          tCtx.filter = `blur(${blurPx.toFixed(2)}px)`;
+          tCtx.drawImage(silCanvas, 0, 0);
+        } else {
+          tCtx.drawImage(silCanvas, 0, 0);
+          _blurCanvas(tmp, blurPx);
+        }
         ctx.globalAlpha = alpha;
         ctx.drawImage(tmp, 0, 0);
       }
@@ -1038,6 +1035,73 @@
 
     function hsla(h, s, l, a) {
       return `hsla(${h},${s}%,${l}%,${a.toFixed(3)})`;
+    }
+
+    /* ── Safari-compatible blur fallback ─────────────────────────────────
+       CanvasRenderingContext2D.filter is unsupported on Safari < 18.
+       We detect support once and use a 3-pass box-blur (≈ Gaussian) instead.
+    ─────────────────────────────────────────────────────────────────── */
+    const _ctxFilterOK = (() => {
+      try {
+        const t = document.createElement('canvas').getContext('2d');
+        t.filter = 'blur(2px)';
+        return t.filter !== 'none' && t.filter !== '';
+      } catch (e) { return false; }
+    })();
+
+    /** Apply an approximate Gaussian blur in-place via 3× box-blur passes.
+     *  Runs in O(W*H) time regardless of radius — uses sliding-window sums. */
+    function _blurCanvas(canvas, sigma) {
+      if (sigma < 0.5) return;
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      const id  = ctx.getImageData(0, 0, W, H);
+      const cur = new Uint8ClampedArray(id.data);
+      const nxt = new Uint8ClampedArray(cur.length);
+      const r    = Math.max(1, Math.round(sigma));
+      const diam = 2 * r + 1;
+
+      function blurH(inp, out) {
+        for (let y = 0; y < H; y++) {
+          const row = y * W;
+          let s0 = inp[row*4]*(r+1),   s1 = inp[row*4+1]*(r+1),
+              s2 = inp[row*4+2]*(r+1), s3 = inp[row*4+3]*(r+1);
+          for (let kx = 1; kx <= r; kx++) {
+            const j = (row + Math.min(kx, W-1)) * 4;
+            s0+=inp[j]; s1+=inp[j+1]; s2+=inp[j+2]; s3+=inp[j+3];
+          }
+          for (let x = 0; x < W; x++) {
+            const i = (row+x)*4;
+            out[i]=s0/diam; out[i+1]=s1/diam; out[i+2]=s2/diam; out[i+3]=s3/diam;
+            const ar=(row+Math.min(x+r+1,W-1))*4, al=(row+Math.max(x-r,0))*4;
+            s0+=inp[ar]-inp[al]; s1+=inp[ar+1]-inp[al+1];
+            s2+=inp[ar+2]-inp[al+2]; s3+=inp[ar+3]-inp[al+3];
+          }
+        }
+      }
+
+      function blurV(inp, out) {
+        for (let x = 0; x < W; x++) {
+          let s0=inp[x*4]*(r+1),   s1=inp[x*4+1]*(r+1),
+              s2=inp[x*4+2]*(r+1), s3=inp[x*4+3]*(r+1);
+          for (let ky = 1; ky <= r; ky++) {
+            const j = (Math.min(ky, H-1)*W+x)*4;
+            s0+=inp[j]; s1+=inp[j+1]; s2+=inp[j+2]; s3+=inp[j+3];
+          }
+          for (let y = 0; y < H; y++) {
+            const i = (y*W+x)*4;
+            out[i]=s0/diam; out[i+1]=s1/diam; out[i+2]=s2/diam; out[i+3]=s3/diam;
+            const ar=(Math.min(y+r+1,H-1)*W+x)*4, al=(Math.max(y-r,0)*W+x)*4;
+            s0+=inp[ar]-inp[al]; s1+=inp[ar+1]-inp[al+1];
+            s2+=inp[ar+2]-inp[al+2]; s3+=inp[ar+3]-inp[al+3];
+          }
+        }
+      }
+
+      // 3 H+V passes ≈ Gaussian (cur → nxt → cur after each full pass)
+      for (let p = 0; p < 3; p++) { blurH(cur, nxt); blurV(nxt, cur); }
+      id.data.set(cur);
+      ctx.putImageData(id, 0, 0);
     }
 
   })();
